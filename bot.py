@@ -30,7 +30,6 @@ history = []
 
 # --- IZLABOTIE YTDL IESTATĪJUMI ---
 ytdl_opts = {
-    # Izmantojam stabilu audio formātu
     'format': 'bestaudio/best',
     'noplaylist': True,
     'quiet': True,
@@ -43,7 +42,6 @@ ytdl_opts = {
             'skip': ['dash', 'hls']
         }
     },
-    # ignoreerrors palīdz neapstāties pie viena bojāta video
     'ignoreerrors': True,
 }
 
@@ -183,7 +181,8 @@ async def play(ctx, *, search):
         voice = await ctx.author.voice.channel.connect()
     async with ctx.typing():
         await add_to_queue_internal(voice, search, ctx.author.display_name)
-        await ctx.send(f"🎵 Meklēju un pievienoju: **{search}**")
+        # Izmainīts ziņojums pēc lietotāja lūguma
+        await ctx.send(f"✅ **Pievienoju!** (**{search}**)")
 
 @bot.command(name='skip')
 async def skip(ctx):
@@ -211,7 +210,7 @@ async def salvis(ctx):
 async def raitis(ctx):
     try:
         with open('raitis.mp4', 'rb') as f:
-            await ctx.send(content="Lūk, video ar Raiti! 🎥", file=discord.File(f))
+            await ctx.send(content="Video no Jeffrey Epstein failiem 🎥", file=discord.File(f))
     except FileNotFoundError:
         await ctx.send("❌ Kļūda: Fails 'raitis.mp4' netika atrasts!")
 
@@ -236,9 +235,9 @@ async def add_to_queue_internal(voice, search, username):
         loop = bot.loop or asyncio.get_event_loop()
         info = await loop.run_in_executor(None, lambda: ytdl.extract_info(search, download=False))
         
-        # DROŠĪBAS PĀRBAUDE: Ja info ir None (kļūda), pārtraucam procesu
+        # DROŠĪBAS PĀRBAUDE pret NoneType kļūdu
         if not info:
-            print(f"❌ Nevarēja atrast datus priekš: {search}")
+            print(f"❌ Neizdevās iegūt info priekš: {search}")
             return
 
         if 'entries' in info: info = info['entries'][0]
@@ -251,6 +250,8 @@ async def add_to_queue_internal(voice, search, username):
             source = discord.FFmpegPCMAudio(song['url'], executable="ffmpeg", **ffmpeg_opts)
             voice.play(source, after=lambda e: bot.loop.create_task(check_queue_internal(voice)))
             await update_bot_status(True)
+            # Logā ierakstām statusu
+            print(f"🎶 Šobrīd atskaņoju: {song['title']}")
     except Exception as e:
         print(f"Kļūda pievienojot rindai: {e}")
 
@@ -277,18 +278,17 @@ async def on_ready():
     await update_bot_status(False)
 
 def run():
-    # Railway piešķir portu caur vides mainīgo PORT
     port = int(os.environ.get("PORT", 8080))
-    # Flask palaišana ar threaded=True, lai tas nebloķētu botu
+    # use_reloader=False ir kritiski svarīgi Threading vidē
     app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
 
 if __name__ == "__main__":
-    # Sākumā palaižam Flask pavedienā
+    # Flask fona pavediens
     t = Thread(target=run)
-    t.daemon = True # Pievieno šo, lai pavediens nebloķētu iziešanu
+    t.daemon = True 
     t.start()
     
-    # Tad palaižam Discord botu
+    # Discord bota galvenā cilpa
     if DISCORD_TOKEN:
         try:
             bot.run(DISCORD_TOKEN)
