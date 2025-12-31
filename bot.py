@@ -277,13 +277,22 @@ async def on_ready():
     await update_bot_status(False)
 
 def run():
+    # Railway piešķir portu caur vides mainīgo PORT
     port = int(os.environ.get("PORT", 8080))
-    app.run(host='0.0.0.0', port=port)
+    # Flask palaišana ar threaded=True, lai tas nebloķētu botu
+    app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
 
 if __name__ == "__main__":
+    # Sākumā palaižam Flask pavedienā
     t = Thread(target=run)
+    t.daemon = True # Pievieno šo, lai pavediens nebloķētu iziešanu
     t.start()
+    
+    # Tad palaižam Discord botu
     if DISCORD_TOKEN:
-        bot.run(DISCORD_TOKEN)
+        try:
+            bot.run(DISCORD_TOKEN)
+        except Exception as e:
+            print(f"Kritiskā bota kļūda: {e}")
     else:
         print("KĻŪDA: Nav atrasts DISCORD_TOKEN!")
