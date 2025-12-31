@@ -40,8 +40,7 @@ ytdl_opts = {
 }
 
 ffmpeg_opts = {
-    'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
-    'options': '-vn -b:a 128k' 
+    'options': '-vn'
 }
 
 ytdl = yt_dlp.YoutubeDL(ytdl_opts)
@@ -275,3 +274,4 @@ if __name__ == "__main__":
         bot.run(DISCORD_TOKEN)
     else:
         print("KĻŪDA: Nav atrasts DISCORD_TOKEN!")
+
