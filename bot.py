@@ -36,7 +36,7 @@ ytdl_opts = {
     'no_warnings': True,
     'default_search': 'ytsearch',
     # Šī rindiņa izmanto tavu augšupielādēto failu:
-    'cookiefile': 'youtube.com_cookies.txt', 
+    'cookiefile': 'www.youtube.com_cookies.txt', 
 }
 
 ffmpeg_opts = {
@@ -274,4 +274,5 @@ if __name__ == "__main__":
         bot.run(DISCORD_TOKEN)
     else:
         print("KĻŪDA: Nav atrasts DISCORD_TOKEN!")
+
 
