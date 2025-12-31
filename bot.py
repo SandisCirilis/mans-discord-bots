@@ -43,6 +43,7 @@ ytdl_opts = {
         }
     },
     'ignoreerrors': True,
+    'source_address': '0.0.0.0' # Palīdz ar IPv6/IPv4 savienojumu uz serveriem
 }
 
 ffmpeg_opts = {
@@ -146,8 +147,8 @@ def get_lyrics():
     if not GEMINI_KEY:
         return jsonify({"lyrics": "Gemini API atslēga nav konfigurēta."})
     try:
-        # ATJAUNINĀTS MODELIS
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        # LABOTS MODEĻA NOSAUKUMS
+        model = genai.GenerativeModel('models/gemini-1.5-flash')
         prompt = f"Atrodi un uzraksti dziesmas '{dziesma}' vārdus. Ja nevari atrast, uzraksti kopsavilkumu par dziesmu latviski."
         response = model.generate_content(prompt)
         return jsonify({"lyrics": response.text if response.text else "Neizdevās atrast."})
@@ -162,8 +163,8 @@ async def ai_chat(ctx, *, jautajums):
         return await ctx.send("❌ AI nav pieejams (trūkst atslēgas).")
     async with ctx.typing():
         try:
-            # ATJAUNINĀTS MODELIS
-            model = genai.GenerativeModel('gemini-1.5-flash')
+            # LABOTS MODEĻA NOSAUKUMS
+            model = genai.GenerativeModel('models/gemini-1.5-flash')
             response = model.generate_content(f"Atbildi latviski: {jautajums}")
             if response.text:
                 full_text = response.text
@@ -182,14 +183,14 @@ async def play(ctx, *, search):
     voice = discord.utils.get(bot.voice_clients, guild=ctx.guild)
     if not voice:
         try:
-            # Uzlabots pieslēgšanās veids ar timeout un deafen stabilitātei
             voice = await ctx.author.voice.channel.connect(timeout=20.0, self_deaf=True)
         except Exception as e:
             return await ctx.send(f"❌ Nevarēju pieslēgties kanālam: {e}")
 
     async with ctx.typing():
         await add_to_queue_internal(voice, search, ctx.author.display_name)
-        await ctx.send(f"✅ **Pievienoju!** (**{search}**)")
+        # Ziņojums tiks nosūtīts tikai tad, ja meklēšana izdosies
+        await ctx.send(f"✅ **Mēģinu pievienot:** (**{search}**)")
 
 @bot.command(name='skip')
 async def skip(ctx):
@@ -240,16 +241,27 @@ async def add_to_queue_internal(voice, search, username):
     global current_song
     try:
         loop = bot.loop or asyncio.get_event_loop()
+        # Ievietota papildu aizsardzība pret NoneType
         info = await loop.run_in_executor(None, lambda: ytdl.extract_info(search, download=False, process=True))
         
-        if not info:
-            print(f"❌ Neizdevās iegūt info priekš: {search}")
+        if info is None:
+            print(f"❌ YouTube neatgrieza nekādus datus priekš: {search}")
             return
 
-        if 'entries' in info: info = info['entries'][0]
+        if 'entries' in info:
+            if not info['entries']:
+                print("❌ Meklēšana nedeva rezultātus.")
+                return
+            video_data = info['entries'][0]
+        else:
+            video_data = info
         
-        url = info.get('url')
-        title = info.get('title', 'Nezināma dziesma')
+        if video_data is None:
+            print("❌ Video dati ir tukši.")
+            return
+        
+        url = video_data.get('url')
+        title = video_data.get('title', 'Nezināma dziesma')
         
         if not url:
             print("❌ Nav pieejams atskaņojams URL.")
@@ -266,7 +278,7 @@ async def add_to_queue_internal(voice, search, username):
             await update_bot_status(True)
             print(f"🎶 Šobrīd atskaņoju: {title}")
     except Exception as e:
-        print(f"Kļūda pievienojot rindai: {e}")
+        print(f"Kritiska kļūda add_to_queue: {e}")
 
 async def check_queue_internal(voice):
     global current_song
