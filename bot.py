@@ -146,7 +146,8 @@ def get_lyrics():
     if not GEMINI_KEY:
         return jsonify({"lyrics": "Gemini API atslēga nav konfigurēta."})
     try:
-        model = genai.GenerativeModel('gemini-pro')
+        # ATJAUNINĀTS MODELIS
+        model = genai.GenerativeModel('gemini-1.5-flash')
         prompt = f"Atrodi un uzraksti dziesmas '{dziesma}' vārdus. Ja nevari atrast, uzraksti kopsavilkumu par dziesmu latviski."
         response = model.generate_content(prompt)
         return jsonify({"lyrics": response.text if response.text else "Neizdevās atrast."})
@@ -161,7 +162,8 @@ async def ai_chat(ctx, *, jautajums):
         return await ctx.send("❌ AI nav pieejams (trūkst atslēgas).")
     async with ctx.typing():
         try:
-            model = genai.GenerativeModel('gemini-pro')
+            # ATJAUNINĀTS MODELIS
+            model = genai.GenerativeModel('gemini-1.5-flash')
             response = model.generate_content(f"Atbildi latviski: {jautajums}")
             if response.text:
                 full_text = response.text
@@ -176,12 +178,17 @@ async def ai_chat(ctx, *, jautajums):
 async def play(ctx, *, search):
     if not ctx.author.voice:
         return await ctx.send("❌ Tev jābūt balss kanālā!")
+    
     voice = discord.utils.get(bot.voice_clients, guild=ctx.guild)
     if not voice:
-        voice = await ctx.author.voice.channel.connect()
+        try:
+            # Uzlabots pieslēgšanās veids ar timeout un deafen stabilitātei
+            voice = await ctx.author.voice.channel.connect(timeout=20.0, self_deaf=True)
+        except Exception as e:
+            return await ctx.send(f"❌ Nevarēju pieslēgties kanālam: {e}")
+
     async with ctx.typing():
         await add_to_queue_internal(voice, search, ctx.author.display_name)
-        # Izmainīts ziņojums pēc lietotāja lūguma
         await ctx.send(f"✅ **Pievienoju!** (**{search}**)")
 
 @bot.command(name='skip')
@@ -221,7 +228,7 @@ async def auto_join_logic():
     for guild in bot.guilds:
         for channel in guild.voice_channels:
             if len(channel.members) > 0:
-                return await channel.connect()
+                return await channel.connect(self_deaf=True)
     return None
 
 async def process_web_request(query):
@@ -233,25 +240,31 @@ async def add_to_queue_internal(voice, search, username):
     global current_song
     try:
         loop = bot.loop or asyncio.get_event_loop()
-        info = await loop.run_in_executor(None, lambda: ytdl.extract_info(search, download=False))
+        info = await loop.run_in_executor(None, lambda: ytdl.extract_info(search, download=False, process=True))
         
-        # DROŠĪBAS PĀRBAUDE pret NoneType kļūdu
         if not info:
             print(f"❌ Neizdevās iegūt info priekš: {search}")
             return
 
         if 'entries' in info: info = info['entries'][0]
-        song = {'url': info['url'], 'title': info['title'], 'user': username}
+        
+        url = info.get('url')
+        title = info.get('title', 'Nezināma dziesma')
+        
+        if not url:
+            print("❌ Nav pieejams atskaņojams URL.")
+            return
+
+        song = {'url': url, 'title': title, 'user': username}
         
         if voice.is_playing() or voice.is_paused():
             queue.append(song)
         else:
             current_song = song
-            source = discord.FFmpegPCMAudio(song['url'], executable="ffmpeg", **ffmpeg_opts)
+            source = discord.FFmpegPCMAudio(url, executable="ffmpeg", **ffmpeg_opts)
             voice.play(source, after=lambda e: bot.loop.create_task(check_queue_internal(voice)))
             await update_bot_status(True)
-            # Logā ierakstām statusu
-            print(f"🎶 Šobrīd atskaņoju: {song['title']}")
+            print(f"🎶 Šobrīd atskaņoju: {title}")
     except Exception as e:
         print(f"Kļūda pievienojot rindai: {e}")
 
@@ -279,16 +292,13 @@ async def on_ready():
 
 def run():
     port = int(os.environ.get("PORT", 8080))
-    # use_reloader=False ir kritiski svarīgi Threading vidē
     app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
 
 if __name__ == "__main__":
-    # Flask fona pavediens
     t = Thread(target=run)
     t.daemon = True 
     t.start()
     
-    # Discord bota galvenā cilpa
     if DISCORD_TOKEN:
         try:
             bot.run(DISCORD_TOKEN)
