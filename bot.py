@@ -28,21 +28,25 @@ queue = []
 current_song = {"title": "Nekas neskan", "user": ""}
 history = []
 
-# --- IZLABOTIE YTDL IESTATĪJUMI AR COOKIES UN GUEST MODE ---
+# --- IZLABOTIE YTDL IESTATĪJUMI ---
 ytdl_opts = {
-    # 'bestaudio/best' vietā izmantojam specifisku prioritāti:
-    'format': 'm4a/bestaudio/best',
+    # Izmantojam stabilu audio formātu
+    'format': 'bestaudio/best',
     'noplaylist': True,
     'quiet': True,
     'no_warnings': True,
     'default_search': 'ytsearch',
     'cookiefile': 'www.youtube.com_cookies.txt', 
-    'extractor_args': {'youtube': {'player_client': ['android', 'web']}},
-    # Pievienojam šo, lai izvairītos no formāta kļūdām:
+    'extractor_args': {
+        'youtube': {
+            'player_client': ['android', 'web', 'ios'],
+            'skip': ['dash', 'hls']
+        }
+    },
+    # ignoreerrors palīdz neapstāties pie viena bojāta video
     'ignoreerrors': True,
 }
 
-# Vienkāršoti FFmpeg iestatījumi stabilitātei
 ffmpeg_opts = {
     'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
     'options': '-vn'
@@ -144,7 +148,6 @@ def get_lyrics():
     if not GEMINI_KEY:
         return jsonify({"lyrics": "Gemini API atslēga nav konfigurēta."})
     try:
-        # Izmantojam 'gemini-pro' stabilitātei
         model = genai.GenerativeModel('gemini-pro')
         prompt = f"Atrodi un uzraksti dziesmas '{dziesma}' vārdus. Ja nevari atrast, uzraksti kopsavilkumu par dziesmu latviski."
         response = model.generate_content(prompt)
@@ -180,7 +183,7 @@ async def play(ctx, *, search):
         voice = await ctx.author.voice.channel.connect()
     async with ctx.typing():
         await add_to_queue_internal(voice, search, ctx.author.display_name)
-        await ctx.send(f"🎵 Pievienots rindai: **{search}**")
+        await ctx.send(f"🎵 Meklēju un pievienoju: **{search}**")
 
 @bot.command(name='skip')
 async def skip(ctx):
@@ -233,6 +236,11 @@ async def add_to_queue_internal(voice, search, username):
         loop = bot.loop or asyncio.get_event_loop()
         info = await loop.run_in_executor(None, lambda: ytdl.extract_info(search, download=False))
         
+        # DROŠĪBAS PĀRBAUDE: Ja info ir None (kļūda), pārtraucam procesu
+        if not info:
+            print(f"❌ Nevarēja atrast datus priekš: {search}")
+            return
+
         if 'entries' in info: info = info['entries'][0]
         song = {'url': info['url'], 'title': info['title'], 'user': username}
         
@@ -240,7 +248,6 @@ async def add_to_queue_internal(voice, search, username):
             queue.append(song)
         else:
             current_song = song
-            # PIEVIENOTS executable="ffmpeg" precīzai palaišanai
             source = discord.FFmpegPCMAudio(song['url'], executable="ffmpeg", **ffmpeg_opts)
             voice.play(source, after=lambda e: bot.loop.create_task(check_queue_internal(voice)))
             await update_bot_status(True)
@@ -254,7 +261,6 @@ async def check_queue_internal(voice):
             history.insert(0, current_song)
             if len(history) > 5: history.pop()
         current_song = queue.pop(0)
-        # PIEVIENOTS executable="ffmpeg"
         source = discord.FFmpegPCMAudio(current_song['url'], executable="ffmpeg", **ffmpeg_opts)
         voice.play(source, after=lambda e: bot.loop.create_task(check_queue_internal(voice)))
         await update_bot_status(True)
@@ -281,4 +287,3 @@ if __name__ == "__main__":
         bot.run(DISCORD_TOKEN)
     else:
         print("KĻŪDA: Nav atrasts DISCORD_TOKEN!")
-
