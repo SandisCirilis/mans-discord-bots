@@ -30,13 +30,16 @@ history = []
 
 # --- IZLABOTIE YTDL IESTATĪJUMI AR COOKIES UN GUEST MODE ---
 ytdl_opts = {
-    'format': 'bestaudio/best',
+    # 'bestaudio/best' vietā izmantojam specifisku prioritāti:
+    'format': 'm4a/bestaudio/best',
     'noplaylist': True,
     'quiet': True,
     'no_warnings': True,
     'default_search': 'ytsearch',
     'cookiefile': 'www.youtube.com_cookies.txt', 
     'extractor_args': {'youtube': {'player_client': ['android', 'web']}},
+    # Pievienojam šo, lai izvairītos no formāta kļūdām:
+    'ignoreerrors': True,
 }
 
 # Vienkāršoti FFmpeg iestatījumi stabilitātei
@@ -278,3 +281,4 @@ if __name__ == "__main__":
         bot.run(DISCORD_TOKEN)
     else:
         print("KĻŪDA: Nav atrasts DISCORD_TOKEN!")
+
