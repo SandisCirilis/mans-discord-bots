@@ -1,0 +1,267 @@
+import discord
+from discord.ext import commands
+import yt_dlp
+import asyncio
+import requests
+import re
+import google.generativeai as genai
+from flask import Flask, render_template, request, jsonify
+from threading import Thread
+import os
+
+# Šeit pēdiņās paliek tikai nosaukumi - tieši tā kā rakstīts šeit:
+DISCORD_TOKEN = os.getenv('DISCORD_TOKEN')
+GEMINI_KEY = os.getenv('GEMINI_KEY')
+
+
+
+# Konfigurē AI, ja atslēga ir atrasta
+if GEMINI_KEY:
+    genai.configure(api_key=GEMINI_KEY)
+
+intents = discord.Intents.default()
+intents.message_content = True
+intents.members = True
+intents.presences = True
+
+bot = commands.Bot(command_prefix='!', intents=intents)
+
+# Mūzikas rinda un dati
+queue = []
+current_song = {"title": "Nekas neskan", "user": ""}
+history = []
+
+ytdl_opts = {
+    'format': 'bestaudio/best',
+    'noplaylist': True,
+    'quiet': True,
+    'default_search': 'ytsearch',
+}
+
+ffmpeg_opts = {
+    'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
+    'options': '-vn -b:a 128k' 
+}
+
+ytdl = yt_dlp.YoutubeDL(ytdl_opts)
+
+# --- PALĪGFUNKCIJA STATUSA MAIŅAI ---
+async def update_bot_status(is_playing=False):
+    try:
+        if is_playing:
+            await bot.change_presence(activity=discord.Game(name="Vergoju 🐒"))
+        else:
+            await bot.change_presence(activity=discord.Game(name="Chilloju 🌈"))
+    except:
+        pass
+
+# --- FLASK WEB SERVERA DAĻA ---
+app = Flask('')
+
+@app.route('/')
+def home():
+    return render_template('index.html')
+
+@app.route('/pause')
+def pause_web():
+    for vc in bot.voice_clients:
+        if vc.is_playing(): 
+            vc.pause()
+            bot.loop.create_task(update_bot_status(False))
+    return "OK", 200
+
+@app.route('/skip')
+def skip_web():
+    for vc in bot.voice_clients:
+        vc.stop()
+    return "OK", 200
+
+@app.route('/resume')
+def resume_web():
+    for vc in bot.voice_clients:
+        if vc.is_paused(): 
+            vc.resume()
+            bot.loop.create_task(update_bot_status(True))
+    return "OK", 200
+
+@app.route('/stop_music')
+def stop_web():
+    queue.clear()
+    for vc in bot.voice_clients:
+        bot.loop.create_task(vc.disconnect())
+    bot.loop.create_task(update_bot_status(False))
+    return "OK", 200
+
+@app.route('/now_playing')
+def now_playing():
+    return {"current": current_song, "history": history}
+
+@app.route('/send_via_bot')
+def send_via_bot():
+    text = request.args.get('text')
+    chan1 = bot.get_channel(1376938381098877010) 
+    chan2 = bot.get_channel(1455640301015269386) 
+    if text:
+        if chan1:
+            bot.loop.create_task(chan1.send(text))
+        if chan2:
+            bot.loop.create_task(chan2.send(text))
+        return "Ziņa nosūtīta!", 200
+    return "Kļūda: Nav teksta", 400
+
+@app.route('/get_online_users')
+def get_online_users():
+    if not bot.guilds: return jsonify([])
+    guild = bot.guilds[0] 
+    online_members = []
+    for member in guild.members:
+        if not member.bot:
+            online_members.append({
+                "name": member.display_name,
+                "status": str(member.status),
+                "avatar": str(member.display_avatar.url)
+            })
+    return jsonify(online_members)
+
+@app.route('/play_web')
+def play_from_web():
+    q = request.args.get('query')
+    if not q: return "Tukšs vaicājums", 400
+    asyncio.run_coroutine_threadsafe(process_web_request(q), bot.loop)
+    return "OK", 200
+
+@app.route('/get_lyrics')
+def get_lyrics():
+    global current_song
+    dziesma = current_song.get('title', 'Nekas neskan')
+    if dziesma == "Nekas neskan":
+        return jsonify({"lyrics": "Pašlaik nekas netiek atskaņots."})
+    try:
+        model = genai.GenerativeModel('models/gemini-flash-latest')
+        prompt = f"Atrodi un uzraksti dziesmas '{dziesma}' vārdus. Ja nevari atrast, uzraksti kopsavilkumu latviski."
+        response = model.generate_content(prompt)
+        return jsonify({"lyrics": response.text if response.text else "Neizdevās atrast."})
+    except Exception as e:
+        return jsonify({"lyrics": f"Kļūda: {e}"})
+
+# --- DISCORD KOMANDAS ---
+
+@bot.command(name='ai')
+async def ai_chat(ctx, *, jautajums):
+    async with ctx.typing():
+        try:
+            model = genai.GenerativeModel('models/gemini-flash-latest')
+            response = model.generate_content(f"Atbildi latviski: {jautajums}")
+            if response.text:
+                full_text = response.text
+                for i in range(0, len(full_text), 1900):
+                    await ctx.send(full_text[i:i+1900])
+            else:
+                await ctx.send("AI neatbildēja.")
+        except Exception as e:
+            await ctx.send(f"❌ Kļūda: {e}")
+
+@bot.command(name='play')
+async def play(ctx, *, search):
+    if not ctx.author.voice:
+        return await ctx.send("❌ Tev jābūt balss kanālā!")
+    voice = discord.utils.get(bot.voice_clients, guild=ctx.guild)
+    if not voice:
+        voice = await ctx.author.voice.channel.connect()
+    async with ctx.typing():
+        await add_to_queue_internal(voice, search, ctx.author.display_name)
+        await ctx.send(f"🎵 Pievienots rindai: **{search}**")
+
+@bot.command(name='skip')
+async def skip(ctx):
+    if ctx.voice_client:
+        ctx.voice_client.stop()
+        await ctx.send("⏭ Izlaists!")
+
+@bot.command(name='stop', aliases=['pisnah', 'stop_music', 'izslēgt'])
+async def stop(ctx):
+    queue.clear()
+    if ctx.voice_client:
+        await ctx.voice_client.disconnect()
+        await update_bot_status(False)
+        await ctx.send("Sapratu saimniek, pazūdu")
+
+@bot.command(name='salvis')
+async def salvis(ctx):
+    try:
+        with open('salvis.png', 'rb') as f:
+            await ctx.send(file=discord.File(f))
+    except FileNotFoundError:
+        await ctx.send("Kļūda: Fails 'salvis.png' netika atrasts!")
+
+@bot.command(name='raitis')
+async def raitis(ctx):
+    try:
+        with open('raitis.mp4', 'rb') as f:
+            await ctx.send(content="Lūk, video ar Raiti! 🎥", file=discord.File(f))
+    except FileNotFoundError:
+        await ctx.send("❌ Kļūda: Fails 'raitis.mp4' netika atrasts!")
+
+# --- IEKŠĒJĀ LOĢIKA ---
+
+async def auto_join_logic():
+    if bot.voice_clients: return bot.voice_clients[0]
+    for guild in bot.guilds:
+        for channel in guild.voice_channels:
+            if len(channel.members) > 0:
+                return await channel.connect()
+    return None
+
+async def process_web_request(query):
+    vc = await auto_join_logic()
+    if vc:
+        await add_to_queue_internal(vc, query, "Dashboard")
+
+async def add_to_queue_internal(voice, search, username):
+    global current_song
+    info = ytdl.extract_info(search, download=False)
+    if 'entries' in info: info = info['entries'][0]
+    song = {'url': info['url'], 'title': info['title'], 'user': username}
+    
+    if voice.is_playing() or voice.is_paused():
+        queue.append(song)
+    else:
+        current_song = song
+        source = discord.FFmpegPCMAudio(song['url'], **ffmpeg_opts)
+        voice.play(source, after=lambda e: bot.loop.create_task(check_queue_internal(voice)))
+        await update_bot_status(True)
+
+async def check_queue_internal(voice):
+    global current_song
+    if len(queue) > 0:
+        if current_song["title"] != "Nekas neskan":
+            history.insert(0, current_song)
+            if len(history) > 5: history.pop()
+        current_song = queue.pop(0)
+        source = discord.FFmpegPCMAudio(current_song['url'], **ffmpeg_opts)
+        voice.play(source, after=lambda e: bot.loop.create_task(check_queue_internal(voice)))
+        await update_bot_status(True)
+    else:
+        if current_song["title"] != "Nekas neskan":
+            history.insert(0, current_song)
+            if len(history) > 5: history.pop()
+        current_song = {"title": "Nekas neskan", "user": ""}
+        await update_bot_status(False)
+
+@bot.event
+async def on_ready():
+    print(f'Bots {bot.user} ir gatavs!')
+    await update_bot_status(False)
+
+def run():
+    # Railway/Heroku prasa portu no vides mainīgajiem
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host='0.0.0.0', port=port)
+
+if __name__ == "__main__":
+    t = Thread(target=run)
+    t.start()
+    if DISCORD_TOKEN:
+        bot.run(DISCORD_TOKEN)
+    else:
+        print("KĻŪDA: Nav atrasts DISCORD_TOKEN!")
