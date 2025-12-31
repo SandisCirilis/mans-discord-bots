@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="lv">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Melnais palīgs</title>
+    <style>
+        body {
+            background-color: #0b0b0b;
+            color: white;
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            padding: 40px 20px;
+        }
+
+        .dashboard {
+            display: flex;
+            flex-direction: row;
+            justify-content: center; /* Centrē abas kolonas ekrāna vidū */
+            gap: 30px;
+            max-width: 1200px;
+            width: 100%;
+            margin: 0 auto;
+            align-items: flex-start;
+        }
+
+        .main-panel {
+            flex: 2; 
+            background-color: #181818;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+
+        .side-panel {
+            flex: 0 0 350px; 
+            background-color: #181818;
+            padding: 20px;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            max-height: 85vh;
+            overflow-y: auto;
+            position: sticky;
+            top: 20px;
+        }
+
+        h1 { color: #1DB954; margin-bottom: 25px; font-size: 1.8em; }
+        
+        .search-container { margin-bottom: 20px; display: flex; gap: 10px; }
+        #web-search {
+            flex: 1;
+            padding: 12px 15px;
+            border-radius: 25px;
+            border: none;
+            background: #282828;
+            color: white;
+            outline: none;
+        }
+        
+        .play-btn { border-radius: 50%; width: 45px; height: 45px; background-color: #1DB954; border: none; color: white; cursor: pointer; }
+        .join-btn { border-radius: 25px; padding: 0 20px; background-color: #e78b22; border: none; color: white; cursor: pointer; font-weight: bold; }
+
+        .current-info {
+    background: linear-gradient(90deg, rgba(29, 185, 84, 0.2) 0%, #282828 100%);
+    padding: 20px;
+    border-radius: 12px;
+    margin-bottom: 20px;
+    border-left: 6px solid #1DB954; /* Spilgti zaļā līnija sākumā */
+    text-align: center;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+}
+        
+        .controls { display: flex; justify-content: center; gap: 10px; margin-bottom: 15px; }
+        .controls button {
+            background-color: #282828;
+            border: 1px solid #333;
+            border-radius: 50px;
+            color: white;
+            padding: 12px 20px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        
+        .stop-btn { background-color: #e91429 !important; border: none; color: white; padding: 12px; border-radius: 50px; cursor: pointer; width: 100%; font-weight: bold; margin-bottom: 25px; }
+
+        .lyrics-container {
+            background: #121212;
+            padding: 20px;
+            border-radius: 12px;
+            height: 350px;
+            overflow-y: auto;
+            border: 1px solid #282828;
+        }
+        #lyrics-text { font-size: 0.95em; color: #b3b3b3; line-height: 1.6; white-space: pre-wrap; }
+
+        #history-list li { margin-bottom: 15px; border-bottom: 1px solid #282828; padding-bottom: 10px; list-style: none; }
+        #history-list li strong { font-size: 0.9em; color: #eee; display: block; }
+
+        @media (max-width: 900px) {
+            .dashboard { flex-direction: column; align-items: center; }
+            .side-panel { width: 100%; flex: none; position: static; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="dashboard">
+        <div class="main-panel">
+            <h1>Melnā palīga pārvaldība</h1>
+
+            <div class="search-container">
+                <input type="text" id="web-search" placeholder="Ieraksti dziesmu vai saiti...">
+                <button class="play-btn" onclick="playFromWeb()">▶</button>
+                <button class="join-btn" onclick="sendControl('/join_web')">JOIN</button>
+            </div>
+            
+            <div class="current-info">
+                <span id="current-title">Meklēju statusu...</span>
+                <span id="current-user"></span>
+            </div>
+
+            <div class="controls">
+                <button onclick="sendControl('/pause')">PAUZE</button>
+                <button onclick="sendControl('/resume')">TURPINĀT</button>
+                <button onclick="sendControl('/skip')" style="background-color: #f1c40f !important; color: black; border: none;">SKIP ⏭</button>
+            </div>
+            <button class="stop-btn" onclick="sendControl('/stop_music')">PISNAH</button>
+<div style="margin-bottom: 25px; background: #1a1a1a; padding: 15px; border-radius: 12px; border-left: 8px solid #5865F2; box-shadow: 0 4px 15px rgba(0,0,0,0.3);">
+    <h3 style="font-size: 0.7em; color: #5865F2; margin: 0 0 10px 5px; text-transform: uppercase; letter-spacing: 1px;">Sūtīt ziņu serverim</h3>
+    <div style="display: flex; gap: 10px;">
+        <input type="text" id="discord-input" placeholder="Ieraksti ko botam pateikt..." 
+               style="flex: 1; padding: 12px 18px; border-radius: 25px; border: none; background: #282828; color: white; outline: none; font-size: 0.9em;">
+        <button onclick="sendViaBot()" 
+                style="background: #5865F2; color: white; border: none; padding: 0 25px; border-radius: 25px; cursor: pointer; font-weight: bold; transition: 0.2s;">
+            SŪTĪT
+        </button>
+    </div>
+</div>
+            <div class="lyrics-container">
+                <h3>Vārdi:</h3>
+                <pre id="lyrics-text">Aiziet!</pre>
+            </div>
+        </div>
+
+        <div class="side-panel">
+            <div class="history-section">
+                <h3>Vēsture</h3>
+                <ul id="history-list"></ul>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentLyricsTitle = "";
+
+        function sendViaBot() {
+        const input = document.getElementById('discord-input');
+        const message = input.value;
+
+        if (!message) return;
+
+        fetch('/send_via_bot?text=' + encodeURIComponent(message))
+            .then(res => {
+                if (res.ok) {
+                    input.value = ""; 
+                    console.log("Bots ziņu aizsūtīja!");
+                } else {
+                    alert("Kļūda sūtot ziņu!");
+                }
+            });
+    }
+
+        function playFromWeb() {
+            const query = document.getElementById('web-search').value;
+            if (!query) return;
+            fetch('/play_web?query=' + encodeURIComponent(query))
+                .then(res => {
+                    if (res.ok) {
+                        document.getElementById('web-search').value = ""; 
+                    } else {
+                        alert("Kļūda! Pārliecinies, ka esi balss kanālā.");
+                    }
+                });
+        }
+
+        document.getElementById("web-search").addEventListener("keypress", function(event) {
+            if (event.key === "Enter") playFromWeb();
+        });
+document.getElementById("discord-input").addEventListener("keypress", function(event) {
+    if (event.key === "Enter") sendViaBot();
+});
+        function sendControl(url) {
+            fetch(url).then(res => console.log("Nosūtīts: " + url));
+        }
+
+        function updateStatus() {
+            fetch('/now_playing')
+                .then(response => response.json())
+                .then(data => {
+                    const titleElement = document.getElementById('current-title');
+                    const userElement = document.getElementById('current-user');
+                    const newTitle = data.current.title;
+                    
+                    titleElement.innerText = newTitle;
+                    
+                    let currentUser = data.current.user;
+                    if (currentUser === "Mazais palīgs") {
+                        userElement.innerHTML = "Pasūtīja: <span style='color: #1DB954;'>🤖 Mazais palīgs</span>";
+                    } else if (currentUser) {
+                        userElement.innerText = "Pasūtīja: " + currentUser;
+                    } else {
+                        userElement.innerText = "";
+                    }
+
+                    if (newTitle !== currentLyricsTitle && newTitle !== "Nekas neskan" && newTitle !== "Meklēju statusu...") {
+                        currentLyricsTitle = newTitle;
+                        document.getElementById('lyrics-text').innerText = "Meklēju vārdus...";
+                        fetch('/get_lyrics')
+                            .then(res => res.json())
+                            .then(lData => {
+                                document.getElementById('lyrics-text').innerText = lData.lyrics;
+                            })
+                            .catch(() => {
+                                document.getElementById('lyrics-text').innerText = "Vārdi netika atrasti.";
+                            });
+                    } else if (newTitle === "Nekas neskan") {
+                        document.getElementById('lyrics-text').innerText = "Klusums...";
+                        currentLyricsTitle = "";
+                    }
+
+                    const list = document.getElementById('history-list');
+                    list.innerHTML = ""; 
+                    data.history.forEach(song => {
+                        const li = document.createElement('li');
+                        let historyUser = song.user === "Mazais palīgs" ? "🤖 Mazais palīgs" : song.user;
+                        li.innerHTML = `
+                            <strong>🕒 ${song.title}</strong>
+                            <small>Pasūtīja: ${historyUser}</small>
+                        `;
+                        list.appendChild(li);
+                    });
+                })
+                .catch(err => console.error("Kļūda:", err));
+        }
+
+        setInterval(updateStatus, 3000);
+        updateStatus();
+    </script>
+</body>
+</html>
